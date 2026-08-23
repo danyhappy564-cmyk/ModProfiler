@@ -4,7 +4,7 @@ In-game profiler for SPT modeled after **Dubs Performance Analyzer** (RimWorld):
 shows live how much CPU time each installed client mod costs per frame — to find the
 culprit behind performance drops without having to disable mods one by one.
 
-![The profiler window over a running game](preview.png)
+![The profiler window over a running game](assets/preview.png)
 
 ## Usage
 
