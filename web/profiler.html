@@ -1,0 +1,435 @@
+<!doctype html>
+<meta charset='utf-8'>
+<!--
+  ModProfiler's web UI, shown in an Anvil-WebOverlay window, talking over
+  the library's named channels (window.overlay): the game posts JSON
+  snapshots on "snap"; the page sends fire-and-forget commands on "cmd"
+  (pause/resume/reset/close), asks for a mod's method details through a
+  "methods" request for every expanded row after each snapshot, and runs
+  csv/rescan through "action" requests whose reply is the outcome for the
+  status line. Sorting, filtering, percentages and the trend sparklines
+  are purely page-side.
+-->
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; background:#171816; color:#d0cdbd; overflow:hidden;
+         font-family:'Segoe UI',system-ui,sans-serif; font-size:13px;
+         display:flex; flex-direction:column; height:100vh; }
+  #top { padding:10px 14px 8px; border-bottom:1px solid rgba(194,173,109,0.25); }
+  #bar { display:flex; align-items:center; gap:8px; }
+  #title { font-weight:650; letter-spacing:.14em; color:#c2ad6d; margin-right:6px; }
+  button { background:#c2ad6d; color:#191a17; border:0; border-radius:4px;
+           padding:5px 12px; font-weight:650; font-size:12px; cursor:pointer; }
+  button:hover { background:#e0ca85; }
+  button.quiet { background:rgba(194,173,109,0.16); color:#c2ad6d; }
+  button.quiet:hover { background:rgba(194,173,109,0.3); }
+  button:disabled, button:disabled:hover { opacity:.45; cursor:default;
+    background:rgba(194,173,109,0.16); }
+  #filter { background:#101110; color:#d0cdbd; border:1px solid rgba(194,173,109,0.35);
+            border-radius:4px; padding:5px 9px; font-size:12px; width:170px; }
+  #filter:focus { outline:1px solid #c2ad6d; }
+  #stats { display:flex; align-items:center; gap:14px; margin-top:8px;
+           color:#918e7e; font-size:12px; }
+  #stats b { color:#d0cdbd; font-weight:650; font-variant-numeric:tabular-nums; }
+  #framespark { width:180px; height:26px; }
+  .grid { display:grid; grid-template-columns:minmax(200px,1fr) 78px 78px 78px 78px 66px 92px 100px;
+          align-items:center; }
+  /* Both share the reserved scrollbar gutter, or the header columns would
+     shift ~15px against the rows once the list starts scrolling.
+     No text-transform here: uppercasing turns the micro sign into a Greek
+     capital Mu, so "µs/Call" would read as "MS/CALL". Units keep their case. */
+  #head { padding:6px 14px 6px; border-bottom:1px solid rgba(194,173,109,0.25);
+          color:#918e7e; font-size:11px; letter-spacing:.08em;
+          overflow-y:hidden; scrollbar-gutter:stable; }
+  #head span { cursor:pointer; user-select:none; }
+  #head span:hover { color:#c2ad6d; }
+  #head .num { text-align:right; }
+  #rows { flex:1; overflow-y:auto; scrollbar-gutter:stable; padding:2px 14px 8px; }
+  .mod { padding:3px 0; border-bottom:1px solid rgba(255,255,255,0.04); cursor:pointer; }
+  .mod:hover { background:rgba(194,173,109,0.06); }
+  .mod .name { color:#d0cdbd; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .mod .name::before { content:'▸ '; color:#918e7e; }
+  .mod.open .name::before { content:'▾ '; }
+  .num { text-align:right; font-variant-numeric:tabular-nums; color:#d0cdbd; }
+  .hot { color:#d98a5f; }
+  .noise { color:#6f6c5f; font-style:italic; }
+  .method { padding:1px 0; color:#918e7e; font-size:12px; }
+  .method .name { padding-left:26px; white-space:nowrap; overflow:hidden;
+                  text-overflow:ellipsis; }
+  .method .cat { color:#6f6c5f; }
+  .method .num { color:#918e7e; }
+  .spark { width:90px; height:22px; justify-self:end; }
+  #status { padding:5px 14px; color:#918e7e; font-size:12px; min-height:26px;
+            border-top:1px solid rgba(194,173,109,0.2); }
+  #empty { padding:30px; text-align:center; color:#918e7e; }
+  /* Fixed height: the log must never grow the header, or the table would
+     shift under the cursor exactly when a spike lands mid-click. */
+  #spikelog { height:62px; margin-top:6px; overflow-y:auto;
+              font-size:11px; color:#d98a5f; font-variant-numeric:tabular-nums;
+              border-top:1px solid rgba(217,138,95,0.25); padding-top:4px; }
+  #spikelog .who { color:#918e7e; }
+  #failures { cursor:pointer; }
+  #failures:hover { text-decoration:underline; }
+  .failhead { padding:8px 0 6px; color:#d98a5f; font-size:12px; }
+  .failhead span { color:#918e7e; }
+  .failure { padding:3px 0; font-size:12px; color:#918e7e;
+             border-bottom:1px solid rgba(255,255,255,0.04);
+             white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .failure b { color:#d0cdbd; font-weight:500; }
+  .failure .why { color:#6f6c5f; }
+</style>
+<div id='top'>
+  <div id='bar'>
+    <span id='title'>MODPROFILER</span>
+    <button id='pause' title='Stop or resume measuring. The instrumentation itself stays until the game restarts.'>Pause</button>
+    <button id='rescan' class='quiet' title='Instrument patches created since the last scan - press once in raid.'>Rescan</button>
+    <button id='reset' class='quiet' title='Zero all counters, totals and trends.'>Reset</button>
+    <button id='csv' class='quiet' title='Write the accumulated totals to BepInEx/plugins/maschine-ModProfiler/.'>CSV</button>
+    <input id='filter' type='text' placeholder='filter mods...' spellcheck='false'>
+    <span style='flex:1'></span>
+    <canvas id='framespark' width='180' height='26' title='Frame time over the last two minutes.'></canvas>
+    <button id='close' class='quiet' title='Close (or Esc / the toggle key)'>✕</button>
+  </div>
+  <div id='stats'>
+    <span title='Average frame time over the sliding window, and the FPS that corresponds to it.'>Frame Ø <b id='frameMs'>-</b> ms (<b id='fps'>-</b> FPS)</span>
+    <span title='Sum of all mod averages. Inclusive, so it can legitimately exceed the frame time.'>profiled Σ <b id='profiled'>-</b> ms/frame</span>
+    <span title='Instrumented methods across all mods. Rescan picks up patches created after the last scan.'><b id='methods'>-</b> methods</span>
+    <span title='Sliding window length in rendered frames; all averages and peaks refer to it.'>window <b id='frames'>-</b> frames</span>
+    <span title='Garbage collections per second. Amber ticks on the frame graph mark intervals with a collection - a max outlier there is often the GC, not a mod.'>GC <b id='gc'>-</b>/s</span>
+    <span id='failures' style='color:#d98a5f' title='Methods Harmony could not wrap - usually a foreign patch already uses a __state of another type. The originals are untouched, but their cost is invisible here. Click to list them; click again to return.'></span>
+  </div>
+  <div id='spikelog' title='Frames slower than the configured SpikeThresholdMs, with the top measured contributors of that exact frame. A spike with no contributor points at the engine or the GC.'></div>
+</div>
+<div id='head' class='grid'>
+  <span data-sort='name' title='One row per mod assembly. Click a row to expand its most expensive methods.'>Mod</span>
+  <span data-sort='avg' class='num' title='Average CPU time booked to this mod per rendered frame, over the sliding window. Inclusive: nested measured calls are double counted.'>Ø ms</span>
+  <span data-sort='max' class='num' title='Most expensive single frame in the window.'>Max ms</span>
+  <span data-sort='calls' class='num' title='Measured calls per rendered frame.'>Calls/F</span>
+  <span data-sort='percall' class='num' title='Average cost of one measured call. Values around 1 µs are mostly measurement overhead - the method itself does almost nothing.'>µs/Call</span>
+  <span data-sort='pct' class='num' title='Share of the average frame time. Inclusive and cross-mod, so the column can sum past 100 %.'>% Frame</span>
+  <span data-sort='total' class='num' title='Accumulated total since activation or the last reset.'>Σ ms</span>
+  <span class='num' title='Ø ms over time, one point per refresh. A flat line is constant background load; spikes are event-driven work.'>Trend</span>
+</div>
+<div id='rows'><div id='empty'>waiting for the first snapshot...</div></div>
+<div id='status'></div>
+<script>
+(function () {
+  'use strict';
+  const el = id => document.getElementById(id);
+  const bridge = window.overlay;
+  if (!bridge) {
+    el('status').textContent = 'This page needs the Anvil-WebOverlay 1.6+ channel bridge.';
+    return;
+  }
+
+  let snap = null;
+  const expanded = new Set();
+  const methodCache = new Map();
+  let refreshing = false, refreshAgain = false;
+  const history = new Map();
+  const frameHistory = [];
+  const gcMarks = [];
+  let lastGc = null, lastSnapAt = 0;
+  let gcAccumDelta = 0, gcAccumSeconds = 0, gcRateText = '-';
+  let sortKey = 'avg', sortDesc = true;
+  let statusTimer = 0;
+  let view = 'mods';
+  let failures = [];
+  el('pause').onclick = () => bridge.send('cmd', snap && snap.active ? 'pause' : 'resume');
+  el('rescan').onclick = () => {
+    const button = el('rescan');
+    if (button.disabled) return;
+    button.disabled = true;
+    setStatus('rescanning - the game pauses for a moment...');
+    bridge.request('action', 'rescan', 60000)
+      .then(setStatus)
+      .finally(() => { button.disabled = false; });
+  };
+  el('reset').onclick = () => {
+    history.clear(); frameHistory.length = 0; gcMarks.length = 0;
+    bridge.send('cmd', 'reset');
+  };
+  el('csv').onclick = () => bridge.request('action', 'csv').then(setStatus);
+  el('close').onclick = () => bridge.send('cmd', 'close');
+  el('filter').oninput = render;
+  el('failures').onclick = () => {
+    if (view === 'failures') { view = 'mods'; render(); return; }
+    bridge.request('failures', '').then(reply => {
+      try { failures = JSON.parse(reply || '[]'); } catch (err) { failures = []; }
+      view = 'failures';
+      render();
+    });
+  };
+
+  function setStatus(text) {
+    el('status').textContent = text == null ? 'no answer from the game' : text;
+    clearTimeout(statusTimer);
+    statusTimer = setTimeout(() => { el('status').textContent = ''; }, 10000);
+  }
+
+  document.querySelectorAll('#head span[data-sort]').forEach(h => {
+    h.onclick = () => {
+      const key = h.dataset.sort;
+      if (sortKey === key) sortDesc = !sortDesc;
+      else { sortKey = key; sortDesc = key !== 'name'; }
+      render();
+    };
+  });
+  bridge.on('snap', payload => {
+    try { snap = JSON.parse(payload); } catch (err) { return; }
+    digest();
+    render();
+    refreshMethods();
+  });
+  function refreshMethods() {
+    if (expanded.size === 0)
+      return;
+    if (refreshing) { refreshAgain = true; return; }
+    refreshing = true;
+    refreshAgain = false;
+    const asks = [...expanded].map(name =>
+      bridge.request('methods', name).then(reply => {
+        if (reply == null) return;
+        try { methodCache.set(name, JSON.parse(reply)); } catch (err) { }
+      }));
+    const done = () => {
+      refreshing = false;
+      render();
+      if (refreshAgain) refreshMethods();
+    };
+    Promise.all(asks).then(done, done);
+  }
+
+  function digest() {
+    const now = performance.now();
+    const gcDelta = lastGc == null ? 0 : Math.max(0, snap.gc - lastGc);
+    const seconds = lastSnapAt > 0 ? (now - lastSnapAt) / 1000 : 0;
+    lastGc = snap.gc; lastSnapAt = now;
+    if (snap.active && snap.frameMs > 0) {
+      frameHistory.push(snap.frameMs);
+      gcMarks.push(gcDelta > 0);
+      if (frameHistory.length > 120) { frameHistory.shift(); gcMarks.shift(); }
+      for (const mod of snap.mods) {
+        let series = history.get(mod.n);
+        if (!series) history.set(mod.n, series = []);
+        series.push(mod.avg);
+        if (series.length > 60) series.shift();
+      }
+    }
+    el('frameMs').textContent = snap.frameMs.toFixed(1);
+    el('fps').textContent = snap.frameMs > 0 ? (1000 / snap.frameMs).toFixed(0) : '-';
+    el('profiled').textContent = snap.mods.reduce((s, m) => s + m.avg, 0).toFixed(2);
+    el('methods').textContent = snap.methods;
+    el('frames').textContent = snap.frames;
+    gcAccumDelta += gcDelta;
+    gcAccumSeconds += seconds;
+    if (gcAccumSeconds >= 0.25) {
+      gcRateText = (gcAccumDelta / gcAccumSeconds).toFixed(1);
+      gcAccumDelta = 0;
+      gcAccumSeconds = 0;
+    }
+    el('gc').textContent = gcRateText;
+    el('failures').textContent = snap.failures > 0 ? snap.failures + ' patch failures' : '';
+    el('pause').textContent = snap.active ? 'Pause' : 'Resume';
+    drawSpark(el('framespark'), frameHistory, '#72ba80', gcMarks);
+    renderSpikes();
+  }
+
+  function renderSpikes() {
+    const list = snap.spikes || [];
+    const log = el('spikelog');
+    log.textContent = '';
+    if (!list.length) {
+      const idle = document.createElement('div');
+      idle.className = 'who';
+      idle.textContent = 'no frame spikes recorded yet';
+      log.appendChild(idle);
+      return;
+    }
+    for (let i = list.length - 1; i >= 0; i--) {
+      const s = list[i];
+      const line = document.createElement('div');
+      line.textContent = s.t + '  ' + s.ms.toFixed(0) + ' ms ';
+      const who = document.createElement('span');
+      who.className = 'who';
+      who.textContent = s.top.length
+        ? '— ' + s.top.map(t => t[0] + ' ' + t[1].toFixed(1)).join(', ')
+        : '— no measured mod stood out (engine or GC)';
+      line.appendChild(who);
+      log.appendChild(line);
+    }
+  }
+  function render() {
+    if (!snap) return;
+    updateArrows();
+    if (view === 'failures') { renderFailures(); return; }
+
+    const filter = el('filter').value.trim().toLowerCase();
+    const frameMs = snap.frameMs;
+    const rows = snap.mods
+      .map(m => ({
+        ...m,
+        pct: frameMs > 0 ? m.avg / frameMs * 100 : 0,
+        percall: perCall(m),
+      }))
+      .filter(m => !filter || m.n.toLowerCase().includes(filter));
+
+    rows.sort((a, b) => {
+      const r = sortKey === 'name'
+        ? a.n.localeCompare(b.n, undefined, { sensitivity: 'base' })
+        : a[sortKey] - b[sortKey];
+      return sortDesc ? -r : r;
+    });
+
+    const host = el('rows');
+    host.textContent = '';
+    if (rows.length === 0) {
+      const empty = document.createElement('div');
+      empty.id = 'empty';
+      empty.textContent = filter ? 'no mod matches the filter' : 'nothing profiled yet';
+      host.appendChild(empty);
+      return;
+    }
+
+    for (const mod of rows) {
+      const row = document.createElement('div');
+      row.className = 'grid mod' + (expanded.has(mod.n) ? ' open' : '');
+      cell(row, 'name', mod.n);
+      cell(row, 'num' + (mod.avg >= 1 ? ' hot' : ''), mod.avg.toFixed(2));
+      cell(row, 'num', mod.max.toFixed(2));
+      cell(row, 'num', mod.calls.toFixed(1));
+      perCallCell(row, mod);
+      cell(row, 'num' + (mod.pct >= 10 ? ' hot' : ''), mod.pct.toFixed(1) + ' %');
+      cell(row, 'num', mod.total.toFixed(0));
+      const spark = document.createElement('canvas');
+      spark.className = 'spark';
+      spark.width = 90; spark.height = 22;
+      row.appendChild(spark);
+      drawSpark(spark, history.get(mod.n) || [], '#c2ad6d');
+      row.onclick = () => {
+        if (expanded.has(mod.n)) { expanded.delete(mod.n); methodCache.delete(mod.n); }
+        else expanded.add(mod.n);
+        render();
+        refreshMethods();
+      };
+      host.appendChild(row);
+
+      const methods = expanded.has(mod.n) ? methodCache.get(mod.n) : null;
+      if (methods)
+        for (const method of methods) {
+          const line = document.createElement('div');
+          line.className = 'grid method';
+          const name = document.createElement('div');
+          name.className = 'name';
+          const cat = document.createElement('span');
+          cat.className = 'cat';
+          cat.textContent = '[' + method.c + '] ';
+          cat.title = method.c === 'H' ? 'Harmony patch applied by this mod'
+            : method.c === 'U' ? 'Unity frame method (Update/FixedUpdate/LateUpdate/OnGUI)'
+            : 'Coroutine / async state machine step';
+          name.appendChild(cat);
+          name.appendChild(document.createTextNode(method.n));
+          name.title = method.n;
+          line.appendChild(name);
+          cell(line, 'num', method.avg.toFixed(3));
+          cell(line, 'num', method.max.toFixed(3));
+          cell(line, 'num', method.calls.toFixed(1));
+          perCallCell(line, { ...method, percall: perCall(method) });
+          cell(line, 'num', '');
+          cell(line, 'num', method.total.toFixed(0));
+          cell(line, 'num', '');
+          host.appendChild(line);
+        }
+    }
+  }
+
+  function renderFailures() {
+    const host = el('rows');
+    host.textContent = '';
+    const head = document.createElement('div');
+    head.className = 'failhead';
+    head.textContent = failures.length + ' method(s) could not be instrumented - their cost is invisible to this profiler. ';
+    const hint = document.createElement('span');
+    hint.textContent = 'Click the counter again to return to the mods.';
+    head.appendChild(hint);
+    host.appendChild(head);
+    for (const f of failures) {
+      const line = document.createElement('div');
+      line.className = 'failure';
+      const mod = document.createElement('b');
+      mod.textContent = f.m + '  ';
+      line.appendChild(mod);
+      line.appendChild(document.createTextNode(f.n + '  '));
+      const why = document.createElement('span');
+      why.className = 'why';
+      why.textContent = '— ' + f.r;
+      line.appendChild(why);
+      line.title = f.m + ': ' + f.n + '\n' + f.r;
+      host.appendChild(line);
+    }
+  }
+
+  function cell(row, className, text, tip) {
+    const div = document.createElement('div');
+    div.className = className;
+    div.textContent = text;
+    if (className === 'name')
+      div.title = text;
+    else if (tip)
+      div.title = tip;
+    row.appendChild(div);
+  }
+
+  function perCall(entry) {
+    return entry.calls > 0 ? entry.avg / entry.calls * 1000 : 0;
+  }
+  function perCallCell(row, entry) {
+    const noisy = entry.percall > 0 && entry.percall < 2 && entry.calls >= 50;
+    cell(row, 'num' + (noisy ? ' noise' : ''),
+      entry.calls > 0 ? entry.percall.toFixed(1) : '',
+      noisy ? 'Close to the ~1 µs measurement overhead per call: this row is mostly profiler cost, and even its ranking is unreliable.' : null);
+  }
+
+  function updateArrows() {
+    document.querySelectorAll('#head span[data-sort]').forEach(h => {
+      const base = h.dataset.sort === 'name' ? 'Mod'
+        : h.dataset.sort === 'avg' ? 'Ø ms'
+        : h.dataset.sort === 'max' ? 'Max ms'
+        : h.dataset.sort === 'calls' ? 'Calls/F'
+        : h.dataset.sort === 'percall' ? 'µs/Call'
+        : h.dataset.sort === 'pct' ? '% Frame' : 'Σ ms';
+      h.textContent = h.dataset.sort === sortKey ? base + (sortDesc ? ' ▼' : ' ▲') : base;
+    });
+  }
+
+  function drawSpark(canvas, series, color, marks) {
+    const g = canvas.getContext('2d');
+    g.clearRect(0, 0, canvas.width, canvas.height);
+    if (series.length < 2)
+      return;
+    const max = Math.max(...series, 0.0001);
+    const stepX = (canvas.width - 2) / (series.length - 1);
+    g.strokeStyle = color;
+    g.lineWidth = 1;
+    g.beginPath();
+    series.forEach((v, i) => {
+      const x = 1 + i * stepX;
+      const y = canvas.height - 2 - (v / max) * (canvas.height - 5);
+      i === 0 ? g.moveTo(x, y) : g.lineTo(x, y);
+    });
+    g.stroke();
+    if (marks) {
+      g.fillStyle = '#d98a5f';
+      marks.forEach((hit, i) => {
+        if (hit)
+          g.fillRect(i * stepX, 0, 2, 3);
+      });
+    }
+    const last = series[series.length - 1];
+    g.fillStyle = color;
+    g.beginPath();
+    g.arc(canvas.width - 1 - 1, canvas.height - 2 - (last / max) * (canvas.height - 5), 1.6, 0, 7);
+    g.fill();
+  }
+})();
+</script>

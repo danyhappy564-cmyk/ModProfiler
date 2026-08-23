@@ -1,0 +1,83 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <RootNamespace>ModProfiler</RootNamespace>
+    <AssemblyName>maschine-ModProfiler</AssemblyName>
+    <Company>https://github.com/maschine34675/ModProfiler</Company>
+    <Nullable>disable</Nullable>
+    <Authors>maschine</Authors>
+    <AssemblyVersion>1.0.0</AssemblyVersion>
+    <FileVersion>$(AssemblyVersion)</FileVersion>
+    <Version>$(AssemblyVersion)</Version>
+    <LangVersion>latest</LangVersion>
+    <Deterministic>true</Deterministic>
+    <Configurations>Debug;Release</Configurations>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="BepInEx">
+      <HintPath>..\..\BepInEx\core\BepInEx.dll</HintPath>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>..\..\BepInEx\core\0Harmony.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine">
+      <HintPath>..\..\EscapeFromTarkov_Data\Managed\UnityEngine.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>..\..\EscapeFromTarkov_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.IMGUIModule">
+      <HintPath>..\..\EscapeFromTarkov_Data\Managed\UnityEngine.IMGUIModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.InputLegacyModule">
+      <HintPath>..\..\EscapeFromTarkov_Data\Managed\UnityEngine.InputLegacyModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.TextRenderingModule">
+      <HintPath>..\..\EscapeFromTarkov_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.UI">
+      <HintPath>..\..\EscapeFromTarkov_Data\Managed\UnityEngine.UI.dll</HintPath>
+    </Reference>
+    <!-- Soft dependency: compile-time only, resolved through UI\WebOverlayGate
+         at runtime. Never ship this DLL in the release zip. -->
+    <Reference Include="Anvil-WebOverlay">
+      <HintPath>..\..\BepInEx\plugins\Anvil-WebOverlay\Anvil-WebOverlay.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="web\profiler.html">
+      <LogicalName>ModProfiler.profiler.html</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <Target Name="DeployToPlugins" AfterTargets="PostBuildEvent">
+    <MakeDir Directories="$(ProjectDir)..\..\BepInEx\plugins\maschine-ModProfiler" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ProjectDir)..\..\BepInEx\plugins\maschine-ModProfiler" />
+  </Target>
+
+  <!--
+    Release builds also produce the distributable zip next to the project:
+    maschine-ModProfiler-<version>.zip with the BepInEx/plugins/... layout
+    (extracts over the game root).
+  -->
+  <Target Name="CreateReleaseZip" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <PropertyGroup>
+      <PackageRoot>$(ProjectDir)obj\package\</PackageRoot>
+      <PackagePluginDir>$(PackageRoot)BepInEx\plugins\maschine-ModProfiler\</PackagePluginDir>
+      <ReleaseZipPath>$(ProjectDir)maschine-ModProfiler-$(AssemblyVersion).zip</ReleaseZipPath>
+    </PropertyGroup>
+    <RemoveDir Directories="$(PackageRoot)" />
+    <MakeDir Directories="$(PackagePluginDir)" />
+    <!-- Everything inside the plugin folder: a blind extraction must leave
+         nothing in the game root. -->
+    <Copy SourceFiles="$(TargetPath);$(ProjectDir)LICENSE;$(ProjectDir)README.md"
+          DestinationFolder="$(PackagePluginDir)" />
+    <Delete Files="$(ReleaseZipPath)" />
+    <ZipDirectory SourceDirectory="$(PackageRoot)" DestinationFile="$(ReleaseZipPath)" />
+    <Message Importance="high" Text="Release package created: $(ReleaseZipPath)" />
+  </Target>
+</Project>
