@@ -13,37 +13,40 @@
     <LangVersion>latest</LangVersion>
     <Deterministic>true</Deterministic>
     <Configurations>Debug;Release</Configurations>
+    <!-- Relative to the working copy: <SPT folder>\Development\ModProfiler\ -> <SPT folder>.
+         Overridable with /p:SptRoot=... for a checkout that doesn't sit in that exact spot. -->
+    <SptRoot Condition="'$(SptRoot)' == ''">$(MSBuildThisFileDirectory)..\..</SptRoot>
   </PropertyGroup>
 
   <ItemGroup>
     <Reference Include="BepInEx">
-      <HintPath>..\..\BepInEx\core\BepInEx.dll</HintPath>
+      <HintPath>$(SptRoot)\BepInEx\core\BepInEx.dll</HintPath>
     </Reference>
     <Reference Include="0Harmony">
-      <HintPath>..\..\BepInEx\core\0Harmony.dll</HintPath>
+      <HintPath>$(SptRoot)\BepInEx\core\0Harmony.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine">
-      <HintPath>..\..\EscapeFromTarkov_Data\Managed\UnityEngine.dll</HintPath>
+      <HintPath>$(SptRoot)\EscapeFromTarkov_Data\Managed\UnityEngine.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.CoreModule">
-      <HintPath>..\..\EscapeFromTarkov_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
+      <HintPath>$(SptRoot)\EscapeFromTarkov_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.IMGUIModule">
-      <HintPath>..\..\EscapeFromTarkov_Data\Managed\UnityEngine.IMGUIModule.dll</HintPath>
+      <HintPath>$(SptRoot)\EscapeFromTarkov_Data\Managed\UnityEngine.IMGUIModule.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.InputLegacyModule">
-      <HintPath>..\..\EscapeFromTarkov_Data\Managed\UnityEngine.InputLegacyModule.dll</HintPath>
+      <HintPath>$(SptRoot)\EscapeFromTarkov_Data\Managed\UnityEngine.InputLegacyModule.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.TextRenderingModule">
-      <HintPath>..\..\EscapeFromTarkov_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath>
+      <HintPath>$(SptRoot)\EscapeFromTarkov_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.UI">
-      <HintPath>..\..\EscapeFromTarkov_Data\Managed\UnityEngine.UI.dll</HintPath>
+      <HintPath>$(SptRoot)\EscapeFromTarkov_Data\Managed\UnityEngine.UI.dll</HintPath>
     </Reference>
     <!-- Soft dependency: compile-time only, resolved through UI\WebOverlayGate
          at runtime. Never ship this DLL in the release zip. -->
     <Reference Include="Anvil-WebOverlay">
-      <HintPath>..\..\BepInEx\plugins\Anvil-WebOverlay\Anvil-WebOverlay.dll</HintPath>
+      <HintPath>$(SptRoot)\BepInEx\plugins\Anvil-WebOverlay\Anvil-WebOverlay.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>
@@ -55,8 +58,8 @@
   </ItemGroup>
 
   <Target Name="DeployToPlugins" AfterTargets="PostBuildEvent">
-    <MakeDir Directories="$(ProjectDir)..\..\BepInEx\plugins\maschine-ModProfiler" />
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ProjectDir)..\..\BepInEx\plugins\maschine-ModProfiler" />
+    <MakeDir Directories="$(SptRoot)\BepInEx\plugins\maschine-ModProfiler" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(SptRoot)\BepInEx\plugins\maschine-ModProfiler" />
   </Target>
 
   <!--

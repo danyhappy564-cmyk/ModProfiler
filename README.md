@@ -152,15 +152,16 @@ anything about the numbers themselves.
 dotnet build -c Release
 ```
 
-The project resolves BepInEx, Harmony and the Unity assemblies through relative paths
-two levels up, so the checkout has to sit inside an SPT installation — clone it as
-`<your SPT folder>/Development/ModProfiler`, or adjust the `HintPath`s. The optional
-`Anvil-WebOverlay.dll` reference resolves from
-`<your SPT folder>/BepInEx/plugins/Anvil-WebOverlay/`; without that library installed the
+The project resolves BepInEx, Harmony and the Unity assemblies relative to `SptRoot`,
+which defaults to two directories up from the project file — so a checkout at
+`<your SPT folder>/Development/ModProfiler` resolves it automatically. A checkout
+anywhere else needs `/p:SptRoot=<your SPT folder>` on the command line (or as an
+MSBuild property in your IDE). The optional `Anvil-WebOverlay.dll` reference resolves
+from `$(SptRoot)/BepInEx/plugins/Anvil-WebOverlay/`; without that library installed the
 build fails, since the web window is compiled against it (it stays optional at runtime).
 
-A successful build copies the DLL to `..\..\BepInEx\plugins\maschine-ModProfiler\` and
-creates the release zip next to the project file.
+A successful build copies the DLL to `$(SptRoot)\BepInEx\plugins\maschine-ModProfiler\`
+and creates the release zip next to the project file.
 
 ## License and credits
 
