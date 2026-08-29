@@ -13,9 +13,8 @@
     <LangVersion>latest</LangVersion>
     <Deterministic>true</Deterministic>
     <Configurations>Debug;Release</Configurations>
-    <!-- Relative to the working copy: <SPT folder>\Development\ModProfiler\ -> <SPT folder>.
-         Overridable with /p:SptRoot=... for a checkout that doesn't sit in that exact spot. -->
-    <SptRoot Condition="'$(SptRoot)' == ''">$(MSBuildThisFileDirectory)..\..</SptRoot>
+    <!-- Overridable with /p:SptRoot=... for a checkout elsewhere. -->
+    <SptRoot Condition="'$(SptRoot)' == ''">E:\SPT 4.0.10</SptRoot>
   </PropertyGroup>
 
   <ItemGroup>

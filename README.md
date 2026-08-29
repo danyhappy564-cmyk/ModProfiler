@@ -153,10 +153,9 @@ dotnet build -c Release
 ```
 
 The project resolves BepInEx, Harmony and the Unity assemblies relative to `SptRoot`,
-which defaults to two directories up from the project file — so a checkout at
-`<your SPT folder>/Development/ModProfiler` resolves it automatically. A checkout
-anywhere else needs `/p:SptRoot=<your SPT folder>` on the command line (or as an
-MSBuild property in your IDE). The optional `Anvil-WebOverlay.dll` reference resolves
+which defaults to this fork's own SPT install path (`ModProfiler.csproj`). Building
+against a different SPT folder needs `/p:SptRoot=<your SPT folder>` on the command
+line (or as an MSBuild property in your IDE). The optional `Anvil-WebOverlay.dll` reference resolves
 from `$(SptRoot)/BepInEx/plugins/Anvil-WebOverlay/`; without that library installed the
 build fails, since the web window is compiled against it (it stays optional at runtime).
 
